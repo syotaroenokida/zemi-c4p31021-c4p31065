@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta charset="UTF-8">
+    <title>面接対策ボット</title>
+
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .question {
+            background: #f3f3f3;
+            padding: 20px;
+            margin: 30px 0;
+            border-radius: 10px;
+            font-size: 20px;
+        }
+
+        .buttons {
+            text-align: center;
+            margin: 30px 0;
+        }
+
+        button {
+            font-size: 18px;
+            padding: 12px 25px;
+            margin: 5px;
+            cursor: pointer;
+        }
+
+        #startButton {
+            background: #ffffff;
+        }
+
+        #stopButton {
+            background: #ffffff;
+        }
+
+        #status {
+            text-align: center;
+            font-weight: bold;
+            margin: 20px;
+        }
+
+        .result {
+            background: #f9f9f9;
+            border: 1px solid #ccc;
+            padding: 20px;
+            min-height: 100px;
+            border-radius: 10px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>面接対策ボット</h1>
+
+    <div class="question">
+        <strong>面接官：</strong><br>
+        自己PRをお願いします。
+    </div>
+
+    <div class="buttons">
+        <button id="startButton">
+            回答開始
+        </button>
+
+        <button id="stopButton" disabled>
+            回答終了
+        </button>
+    </div>
+
+    <div id="status">
+        待機中
+    </div>
+
+    <h2>あなたの回答</h2>
+
+    <div id="result" class="result">
+        ここに文字起こし結果が表示されます。
+    </div>
+
+
+    <script>
+
+        // 録音に使用するMediaRecorder
+        let mediaRecorder;
+
+        // 録音データを一時的に保存する配列
+        let audioChunks = [];
+
+
+        // HTMLのボタンを取得
+        const startButton =
+            document.getElementById("startButton");
+
+        const stopButton =
+            document.getElementById("stopButton");
+
+        const status =
+            document.getElementById("status");
+
+        const result =
+            document.getElementById("result");
+
+
+        // ==============================
+        // 回答開始
+        // ==============================
+
+        startButton.addEventListener("click", async () => {
+
+            try {
+
+                // マイクへのアクセスを要求
+                const stream =
+                    await navigator.mediaDevices.getUserMedia({
+                        audio: true
+                    });
+
+                // 録音データを初期化
+                audioChunks = [];
+
+                // MediaRecorderを作成
+                mediaRecorder =
+                    new MediaRecorder(stream);
+
+                // 音声データが発生したとき
+                mediaRecorder.addEventListener(
+                    "dataavailable",
+                    event => {
+
+                        if (event.data.size > 0) {
+                            audioChunks.push(event.data);
+                        }
+
+                    }
+                );
+
+
+                // 録音終了時
+                mediaRecorder.addEventListener(
+                    "stop",
+                    async () => {
+
+                        // 録音したデータからBlobを作成
+                        const audioBlob =
+                            new Blob(
+                                audioChunks,
+                                {
+                                    type: "audio/webm"
+                                }
+                            );
+
+                        // Flaskへ音声を送信
+                        await sendAudio(audioBlob);
+
+                        // マイクを停止
+                        stream.getTracks().forEach(
+                            track => track.stop()
+                        );
+
+                    }
+                );
+
+
+                // 録音開始
+                mediaRecorder.start();
+
+
+                // 画面を変更
+                status.textContent =
+                    "🔴 録音中...";
+
+                startButton.disabled = true;
+                stopButton.disabled = false;
+
+            } catch (error) {
+
+                console.error(error);
+
+                status.textContent =
+                    "マイクを使用できませんでした。";
+
+            }
+
+        });
+
+
+        // ==============================
+        // 回答終了
+        // ==============================
+
+        stopButton.addEventListener("click", () => {
+
+            if (
+                mediaRecorder &&
+                mediaRecorder.state === "recording"
+            ) {
+
+                mediaRecorder.stop();
+
+                status.textContent =
+                    "音声を処理しています...";
+
+                startButton.disabled = false;
+                stopButton.disabled = true;
+
+            }
+
+        });
+
+
+        // ==============================
+        // Flaskへ音声を送信
+        // ==============================
+
+        async function sendAudio(audioBlob) {
+
+            // FormDataを作成
+            const formData = new FormData();
+
+            // 音声ファイルを追加
+            formData.append(
+                "audio",
+                audioBlob,
+                "interview.webm"
+            );
+
+
+            try {
+
+                // FlaskのAPIへPOST
+                const response =
+                    await fetch(
+                        "/transcribe",
+                        {
+                            method: "POST",
+                            body: formData
+                        }
+                    );
+
+
+                // JSONを取得
+                const data =
+                    await response.json();
+
+
+                // エラーの場合
+                if (!response.ok) {
+
+                    throw new Error(
+                        data.error ||
+                        "音声認識に失敗しました"
+                    );
+
+                }
+
+
+                // 認識結果を表示
+                result.textContent =
+                    data.text;
+
+                status.textContent =
+                    "文字起こし完了";
+
+            } catch (error) {
+
+                console.error(error);
+
+                status.textContent =
+                    "音声認識に失敗しました。";
+
+                result.textContent =
+                    error.message;
+
+            }
+
+        }
+
+    </script>
+
+</body>
+</html>
